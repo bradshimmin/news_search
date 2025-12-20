@@ -1,17 +1,41 @@
 # News RSS Feeds Configuration
 feeds:
-  - name: "BBC News"
-    url: "http://feeds.bbci.co.uk/news/rss.xml"
-    category: "general"
+  - name: "Wired AI"
+    url: "https://www.wired.com/feed/tag/ai/latest/rss"
+    category: "ai"
   
-  - name: "CNN Top Stories"
-    url: "http://rss.cnn.com/rss/cnn_topstories.rss"
-    category: "general"
+  - name: "Ars Technica"
+    url: "https://feeds.arstechnica.com/arstechnica/technology-lab"
+    category: "tech"
   
-  - name: "Reuters World News"
-    url: "http://feeds.reuters.com/reuters/worldNews"
-    category: "world"
-  
+  - name: "BBC Technology News"
+    url: "https://feeds.bbci.co.uk/news/technology/rss.xml"
+    category: "tech"
+
+  - name: "MIT Technology News"
+    url: "https://www.technologyreview.com/topnews.rss"
+    category: "tech"
+
+  - name: "ZDNet Open Source News"
+    url: "https://www.zdnet.com/topic/open-source/rss.xml"
+    category: "tech"
+    
+  - name: "ZDNet AI News"
+    url: "https://www.zdnet.com/topic/artificial-intelligence/rss.xml"
+    category: "ai"
+    
+  - name: "O'Reilly AI"
+    url: "https://www.oreilly.com/radar/feed/"
+    category: "ai"
+    
+  - name: "Towards Data Science"
+    url: "https://towardsdatascience.com/feed"
+    category: "ai"
+    
+  - name: "Mashable Tech"
+    url: "https://mashable.com/feeds/rss/all"
+    category: "tech"
+    
   - name: "TechCrunch"
     url: "https://techcrunch.com/feed/"
     category: "technology"
@@ -23,3 +47,35 @@ feeds:
   - name: "Hacker News"
     url: "https://news.ycombinator.com/rss"
     category: "technology"
+
+  - name: "KDnuggets"
+    url: "https://kdnuggets.com/feed"
+    category: "data"
+
+  - name: "Datanami"
+    url: "https://datanami.com/feed"
+    category: "data"
+
+  - name: "Tiger Analytics"
+    url: "https://tigeranalytics.com/feed"
+    category: "data"
+
+  - name: "NVIDIA Blog"
+    url: "https://blogs.nvidia.com/feed/"
+    category: "ai"
+
+  - name: "InData Labs"
+    url: "https://indatalabs.com/blog/feed"
+    category: "data"
+
+  - name: "Singularity Hub"
+    url: "https://singularityhub.com/feed/"
+    category: "ai"
+
+  - name: "AI News"
+    url: "https://www.artificialintelligence-news.com/feed/"
+    category: "ai"
+
+  - name: "Analytics India Magazine"
+    url: "https://analyticsindiamag.com/feed/"
+    category: "data"

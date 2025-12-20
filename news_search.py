@@ -230,10 +230,29 @@ class NewsFetcher:
     def fetch_all_feeds(self) -> List[Dict[str, Any]]:
         """Fetch all RSS feeds and return parsed news items."""
         all_items = []
+        successful_feeds = 0
+        failed_feeds = 0
+        
+        print(f"Attempting to fetch {len(self.feeds)} RSS feeds...")
         
         for feed in self.feeds:
             try:
+                print(f"  Fetching: {feed['name']} ({feed['url']})")
                 parsed_feed = feedparser.parse(feed['url'])
+                
+                # Check if feed parsing failed
+                if parsed_feed.bozo:
+                    print(f"    ❌ Invalid RSS feed: {parsed_feed.bozo_exception}")
+                    failed_feeds += 1
+                    continue
+                
+                item_count = len(parsed_feed.entries)
+                if item_count == 0:
+                    print(f"    ⚠️  No items found in feed")
+                    failed_feeds += 1
+                    continue
+                    
+                print(f"    ✅ Success: Found {item_count} items")
                 
                 for entry in parsed_feed.entries:
                     # Extract published date if available
@@ -253,9 +272,17 @@ class NewsFetcher:
                         'published_date': published_date or datetime.now().isoformat()
                     }
                     all_items.append(item)
-                    
+                
+                successful_feeds += 1
+                
             except Exception as e:
-                print(f"Error fetching {feed['name']}: {e}")
+                print(f"    ❌ Error: {e}")
+                failed_feeds += 1
+        
+        print(f"\n📊 Feed Fetch Summary:")
+        print(f"  ✅ Successfully fetched from {successful_feeds} feeds")
+        print(f"  ❌ Failed to fetch from {failed_feeds} feeds")
+        print(f"  📰 Total items collected: {len(all_items)}")
         
         return all_items
 
@@ -298,6 +325,32 @@ class NewsCLI:
         
         print(f"\nURL: {item['url']}")
         print("-" * 60)
+
+    def display_news_item_compact(self, item: Dict[str, Any], index: int = None):
+        """Display a single news item in a clean two-line format."""
+        # Format date if available
+        date_str = ""
+        if item['published_date']:
+            try:
+                date_obj = datetime.fromisoformat(item['published_date'])
+                date_str = date_obj.strftime('%Y-%m-%d')
+            except:
+                date_str = item['published_date']
+        
+        # First line: index, date, title, source
+        if index is not None:
+            if date_str:
+                print(f"[{index}] {date_str} - {item['title']} ({item['source_name']})")
+            else:
+                print(f"[{index}] {item['title']} ({item['source_name']})")
+        else:
+            if date_str:
+                print(f"{date_str} - {item['title']} ({item['source_name']})")
+            else:
+                print(f"{item['title']} ({item['source_name']})")
+        
+        # Second line: indented URL with link emoji
+        print(f"  🔗 {item['url']}")
     
     def fetch_and_store_news(self):
         """Fetch news from all feeds and store in database."""
@@ -346,9 +399,9 @@ class NewsCLI:
         # Display summary
         print(f"Showing {len(news_items)} recent news items\n")
         
-        # Display first 10 items with indices
+        # Display first 10 items with indices in compact format
         for i, item in enumerate(news_items[:10]):
-            self.display_news_item(item, i + 1)
+            self.display_news_item_compact(item, i + 1)
         
         # Navigation menu
         print("\nNavigation:")
@@ -390,7 +443,7 @@ class NewsCLI:
         end_index = min(start_index + 10, len(news_items))
         
         for i in range(start_index, end_index):
-            self.display_news_item(news_items[i], i + 1)
+            self.display_news_item_compact(news_items[i], i + 1)
         
         # Navigation
         print(f"\nShowing items {start_index + 1}-{end_index} of {len(news_items)}")
