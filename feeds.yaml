@@ -1,0 +1,25 @@
+# News RSS Feeds Configuration
+feeds:
+  - name: "BBC News"
+    url: "http://feeds.bbci.co.uk/news/rss.xml"
+    category: "general"
+  
+  - name: "CNN Top Stories"
+    url: "http://rss.cnn.com/rss/cnn_topstories.rss"
+    category: "general"
+  
+  - name: "Reuters World News"
+    url: "http://feeds.reuters.com/reuters/worldNews"
+    category: "world"
+  
+  - name: "TechCrunch"
+    url: "https://techcrunch.com/feed/"
+    category: "technology"
+  
+  - name: "The Verge"
+    url: "https://www.theverge.com/rss/index.xml"
+    category: "technology"
+  
+  - name: "Hacker News"
+    url: "https://news.ycombinator.com/rss"
+    category: "technology"

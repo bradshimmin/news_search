@@ -1,0 +1,133 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+.venv/
+venv/
+ENV/
+.env/
+
+# Database files (but keep news.db tracked)
+data.db
+*.sqlite
+*.sqlite3
+
+# Log files
+*.log
+
+# Environment files
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# MacOS
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# Markdown digest output (but keep tracked for this project)
+# news_digests/ is intentionally tracked for this project
+
+# Data files that might contain sensitive info or large data
+data_ai_analytics_rss_feeds.yaml
+
+# Demo/test files
+demo.py
+
+# Cache and temporary files
+*.cache
+*.tmp
+*.temp
+
+# Coverage reports
+.coverage
+*.cover
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Jupyter notebooks
+.ipynb_checkpoints/
+
+# Python specific
+*.pyo
+*.pyd
+*.pyi
+
+# Test output
+test_results/
+
+# Personal configuration
+*.config
+
+# Large data files
+*.csv
+*.json
+*.xml
+
+# Backup files
+*.bak
+*.backup
+
+# OS generated files
+.ehthumbs.db
+.DS_Store?
+.Spotlight-V100
+.Trashes
+
+# Editor files
+*.orig
+*.rej
+
+# Compiled files
+*.com
+*.class
+*.dll
+*.exe
+*.o
+*.so
+
+# Package files
+*.7z
+*.dmg
+*.gz
+*.iso
+*.jar
+*.rar
+*.tar
+*.zip
+
+# Documentation build
+_docs/
+_dbuild/
+
+# Sublime Text
+*.sublime-workspace
+*.sublime-project
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# JetBrains
+.idea/
+*.iml
+
+# Database and cache files specific to this project
+# news.db is intentionally tracked for this project
+
+# Markdown digest output directory (intentionally tracked)
+# news_digests/ contains generated reports that should be tracked
