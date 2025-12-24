@@ -56,26 +56,7 @@ feeds:
     url: "https://datanami.com/feed"
     category: "data"
 
-  - name: "Tiger Analytics"
-    url: "https://tigeranalytics.com/feed"
-    category: "data"
-
   - name: "NVIDIA Blog"
     url: "https://blogs.nvidia.com/feed/"
     category: "ai"
 
-  - name: "InData Labs"
-    url: "https://indatalabs.com/blog/feed"
-    category: "data"
-
-  - name: "Singularity Hub"
-    url: "https://singularityhub.com/feed/"
-    category: "ai"
-
-  - name: "AI News"
-    url: "https://www.artificialintelligence-news.com/feed/"
-    category: "ai"
-
-  - name: "Analytics India Magazine"
-    url: "https://analyticsindiamag.com/feed/"
-    category: "data"
