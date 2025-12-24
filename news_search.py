@@ -31,6 +31,24 @@ class NewsDatabase:
         if not os.path.exists(MD_OUTPUT_DIR):
             os.makedirs(MD_OUTPUT_DIR)
     
+    def _add_missing_columns(self):
+        """Add missing columns to existing tables for backward compatibility."""
+        cursor = self.conn.cursor()
+        
+        # Check if is_active column exists
+        cursor.execute("PRAGMA table_info(sources)")
+        columns = [column[1] for column in cursor.fetchall()]
+        
+        if 'is_active' not in columns:
+            cursor.execute('ALTER TABLE sources ADD COLUMN is_active BOOLEAN DEFAULT 1')
+            print("Added 'is_active' column to sources table")
+        
+        if 'last_fetched' not in columns:
+            cursor.execute('ALTER TABLE sources ADD COLUMN last_fetched TEXT')
+            print("Added 'last_fetched' column to sources table")
+        
+        self.conn.commit()
+    
     def _create_tables(self):
         """Create database tables if they don't exist."""
         cursor = self.conn.cursor()
@@ -57,11 +75,16 @@ class NewsDatabase:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL UNIQUE,
                 url TEXT,
-                category TEXT
+                category TEXT,
+                is_active BOOLEAN DEFAULT 1,
+                last_fetched TEXT
             )
         ''')
         
         self.conn.commit()
+        
+        # Add new columns to existing table if they don't exist
+        self._add_missing_columns()
     
     def add_news_item(self, title: str, description: str, url: str, source_name: str, 
                      source_url: str, category: str, published_date: str) -> bool:
@@ -88,15 +111,27 @@ class NewsDatabase:
             # Item already exists
             return False
     
-    def get_recent_news(self, limit: int = 20) -> List[Dict[str, Any]]:
+    def get_recent_news(self, limit: int = 20, active_only: bool = False) -> List[Dict[str, Any]]:
         """Get recent news items."""
         cursor = self.conn.cursor()
-        cursor.execute('''
-            SELECT id, title, description, url, source_name, published_date, fetched_date
-            FROM news_items
-            ORDER BY fetched_date DESC
-            LIMIT ?
-        ''', (limit,))
+        
+        if active_only:
+            cursor.execute('''
+                SELECT id, title, description, url, source_name, published_date, fetched_date
+                FROM news_items
+                WHERE source_name IN (
+                    SELECT name FROM sources WHERE is_active = 1
+                )
+                ORDER BY fetched_date DESC
+                LIMIT ?
+            ''', (limit,))
+        else:
+            cursor.execute('''
+                SELECT id, title, description, url, source_name, published_date, fetched_date
+                FROM news_items
+                ORDER BY fetched_date DESC
+                LIMIT ?
+            ''', (limit,))
         
         return [dict(zip(['id', 'title', 'description', 'url', 'source_name', 'published_date', 'fetched_date'], row))
                 for row in cursor.fetchall()]
@@ -117,39 +152,170 @@ class NewsDatabase:
         return [dict(zip(['id', 'title', 'description', 'url', 'source_name', 'published_date', 'fetched_date'], row))
                 for row in cursor.fetchall()]
     
-    def get_news_by_source(self, source_name: str, limit: int = 20) -> List[Dict[str, Any]]:
+    def get_news_by_source(self, source_name: str, limit: int = 20, active_only: bool = False) -> List[Dict[str, Any]]:
         """Get news items from a specific source."""
         cursor = self.conn.cursor()
         
-        cursor.execute('''
-            SELECT id, title, description, url, source_name, published_date, fetched_date
-            FROM news_items
-            WHERE source_name = ?
-            ORDER BY fetched_date DESC
-            LIMIT ?
-        ''', (source_name, limit))
+        if active_only:
+            cursor.execute('''
+                SELECT id, title, description, url, source_name, published_date, fetched_date
+                FROM news_items
+                WHERE source_name = ? AND source_name IN (
+                    SELECT name FROM sources WHERE is_active = 1
+                )
+                ORDER BY fetched_date DESC
+                LIMIT ?
+            ''', (source_name, limit))
+        else:
+            cursor.execute('''
+                SELECT id, title, description, url, source_name, published_date, fetched_date
+                FROM news_items
+                WHERE source_name = ?
+                ORDER BY fetched_date DESC
+                LIMIT ?
+            ''', (source_name, limit))
         
         return [dict(zip(['id', 'title', 'description', 'url', 'source_name', 'published_date', 'fetched_date'], row))
                 for row in cursor.fetchall()]
     
-    def get_sources(self) -> List[Dict[str, Any]]:
-        """Get all news sources."""
+    def get_sources(self, active_only: bool = False) -> List[Dict[str, Any]]:
+        """Get all news sources, optionally filtered by active status."""
         cursor = self.conn.cursor()
-        cursor.execute('SELECT name, category FROM sources ORDER BY name')
         
-        return [dict(zip(['name', 'category'], row)) for row in cursor.fetchall()]
+        if active_only:
+            cursor.execute('''
+                SELECT name, category, is_active, last_fetched 
+                FROM sources 
+                WHERE is_active = 1 
+                ORDER BY name
+            ''')
+        else:
+            cursor.execute('''
+                SELECT name, category, is_active, last_fetched 
+                FROM sources 
+                ORDER BY name
+            ''')
+        
+        return [dict(zip(['name', 'category', 'is_active', 'last_fetched'], row)) 
+                for row in cursor.fetchall()]
     
-    def get_news_by_category(self, category: str, limit: int = 20) -> List[Dict[str, Any]]:
+    def get_active_sources(self) -> List[Dict[str, Any]]:
+        """Get only active news sources."""
+        return self.get_sources(active_only=True)
+    
+    def sync_sources_with_config(self, fetcher=None) -> None:
+        """Sync database sources with current config file."""
+        if fetcher is None:
+            # For backward compatibility, try to use internal fetcher if available
+            try:
+                current_sources = {feed['name'] for feed in self.fetcher.feeds}
+            except AttributeError:
+                print("Error: No fetcher provided and no internal fetcher available.")
+                return
+        else:
+            current_sources = {feed['name'] for feed in fetcher.feeds}
+        
+        cursor = self.conn.cursor()
+        
+        # Mark all sources as inactive initially
+        cursor.execute('UPDATE sources SET is_active = 0')
+        
+        # Mark current sources as active and update last_fetched
+        now = datetime.now().isoformat()
+        for source_name in current_sources:
+            cursor.execute('''
+                UPDATE sources 
+                SET is_active = 1, last_fetched = ?
+                WHERE name = ?
+            ''', (now, source_name))
+        
+        self.conn.commit()
+        print(f"Source sync complete. {len(current_sources)} sources marked as active.")
+    
+    def deactivate_obsolete_sources(self, fetcher=None) -> int:
+        """Mark sources not in config as inactive. Returns number of sources deactivated."""
+        if fetcher is None:
+            # For backward compatibility, try to use internal fetcher if available
+            try:
+                current_sources = {feed['name'] for feed in self.fetcher.feeds}
+            except AttributeError:
+                print("Error: No fetcher provided and no internal fetcher available.")
+                return 0
+        else:
+            current_sources = {feed['name'] for feed in fetcher.feeds}
+        
+        cursor = self.conn.cursor()
+        
+        # Find sources that are currently active but not in config
+        cursor.execute('''
+            SELECT name FROM sources 
+            WHERE is_active = 1 AND name NOT IN ({})
+        '''.format(','.join(['?'] * len(current_sources))), tuple(current_sources))
+        
+        obsolete_sources = [row[0] for row in cursor.fetchall()]
+        
+        if obsolete_sources:
+            cursor.execute('''
+                UPDATE sources 
+                SET is_active = 0
+                WHERE name IN ({})
+            '''.format(','.join(['?'] * len(obsolete_sources))), tuple(obsolete_sources))
+            self.conn.commit()
+        
+        return len(obsolete_sources)
+    
+    def cleanup_inactive_sources(self, confirm: bool = True) -> int:
+        """Remove inactive sources from database. Returns number of sources removed."""
+        cursor = self.conn.cursor()
+        
+        # Get count of inactive sources
+        cursor.execute('SELECT COUNT(*) FROM sources WHERE is_active = 0')
+        inactive_count = cursor.fetchone()[0]
+        
+        if inactive_count == 0:
+            print("No inactive sources to clean up.")
+            return 0
+        
+        if confirm:
+            response = input(f"WARNING: This will permanently delete {inactive_count} inactive sources. Continue? (y/N): ")
+            if response.lower() != 'y':
+                print("Cleanup cancelled.")
+                return 0
+        
+        # Get inactive sources for display
+        cursor.execute('SELECT name FROM sources WHERE is_active = 0')
+        inactive_sources = [row[0] for row in cursor.fetchall()]
+        
+        print(f"Removing inactive sources: {', '.join(inactive_sources)}...")
+        
+        # Delete inactive sources
+        cursor.execute('DELETE FROM sources WHERE is_active = 0')
+        self.conn.commit()
+        
+        return inactive_count
+    
+    def get_news_by_category(self, category: str, limit: int = 20, active_only: bool = False) -> List[Dict[str, Any]]:
         """Get news items by category."""
         cursor = self.conn.cursor()
         
-        cursor.execute('''
-            SELECT id, title, description, url, source_name, published_date, fetched_date
-            FROM news_items
-            WHERE category = ?
-            ORDER BY fetched_date DESC
-            LIMIT ?
-        ''', (category, limit))
+        if active_only:
+            cursor.execute('''
+                SELECT id, title, description, url, source_name, published_date, fetched_date
+                FROM news_items
+                WHERE category = ? AND source_name IN (
+                    SELECT name FROM sources WHERE is_active = 1
+                )
+                ORDER BY fetched_date DESC
+                LIMIT ?
+            ''', (category, limit))
+        else:
+            cursor.execute('''
+                SELECT id, title, description, url, source_name, published_date, fetched_date
+                FROM news_items
+                WHERE category = ?
+                ORDER BY fetched_date DESC
+                LIMIT ?
+            ''', (category, limit))
         
         return [dict(zip(['id', 'title', 'description', 'url', 'source_name', 'published_date', 'fetched_date'], row))
                 for row in cursor.fetchall()]
@@ -158,7 +324,7 @@ class NewsDatabase:
         """Close the database connection."""
         self.conn.close()
     
-    def generate_markdown_digest(self, news_items: List[Dict[str, Any]], filename: str = None) -> str:
+    def generate_markdown_digest(self, news_items: List[Dict[str, Any]], filename: str = None, active_only: bool = False) -> str:
         """Generate a Markdown file with news digest."""
         if filename is None:
             # Generate filename with current date/time
@@ -182,6 +348,14 @@ class NewsDatabase:
             
             # Write each source section
             for source_name, items in sources.items():
+                # Check if source is active if filtering is enabled
+                if active_only:
+                    cursor = self.conn.cursor()
+                    cursor.execute('SELECT is_active FROM sources WHERE name = ?', (source_name,))
+                    source_info = cursor.fetchone()
+                    if source_info and not source_info[0]:
+                        continue  # Skip inactive sources
+                
                 f.write(f"## {source_name}\n\n")
                 
                 for item in items:
@@ -356,6 +530,10 @@ class NewsCLI:
         """Fetch news from all feeds and store in database."""
         print("Fetching news from RSS feeds...")
         
+        # Sync sources with config before fetching
+        print("Syncing sources with configuration...")
+        self.db.sync_sources_with_config()
+        
         items = self.fetcher.fetch_all_feeds()
         added_count = 0
         new_items = []  # Only store items that were actually added
@@ -388,8 +566,21 @@ class NewsCLI:
         self.clear_screen()
         self.display_header("Today's News Dashboard")
         
+        # Ask if user wants to filter by active sources only
+        print("Filter options:")
+        print("1. Show all news")
+        print("2. Show only news from active sources")
+        print("q: Back to main menu")
+        
+        filter_choice = input("\nEnter your choice (1-2, q): ").strip().lower()
+        
+        if filter_choice == 'q':
+            return
+        
+        active_only = filter_choice == '2'
+        
         # Get news from the last 24 hours
-        news_items = self.db.get_recent_news(50)
+        news_items = self.db.get_recent_news(50, active_only=active_only)
         
         if not news_items:
             print("No news items found. Try fetching news first.")
@@ -397,7 +588,8 @@ class NewsCLI:
             return
         
         # Display summary
-        print(f"Showing {len(news_items)} recent news items\n")
+        filter_text = "from active sources only" if active_only else "from all sources"
+        print(f"Showing {len(news_items)} recent news items {filter_text}\n")
         
         # Display first 10 items with indices in compact format
         for i, item in enumerate(news_items[:10]):
@@ -540,16 +732,32 @@ class NewsCLI:
         self.clear_screen()
         self.display_header("Browse by Source")
         
-        sources = self.db.get_sources()
+        # Ask if user wants to filter by active sources only
+        print("Filter options:")
+        print("1. Show all sources")
+        print("2. Show only active sources")
+        print("q: Back to main menu")
+        
+        filter_choice = input("\nEnter your choice (1-2, q): ").strip().lower()
+        
+        if filter_choice == 'q':
+            return
+        elif filter_choice == '2':
+            sources = self.db.get_sources(active_only=True)
+            active_only = True
+        else:
+            sources = self.db.get_sources()
+            active_only = False
         
         if not sources:
             print("No sources available.")
             input("Press Enter to continue...")
             return
         
-        print("Available sources:")
+        print(f"\nAvailable sources ({'active only' if active_only else 'all'}):")
         for i, source in enumerate(sources, 1):
-            print(f"{i}. {source['name']} ({source['category']})")
+            status = "🟢" if source.get('is_active', True) else "🔴"
+            print(f"{i}. {source['name']} ({source['category']}) {status}")
         
         print(f"\n1-{len(sources)}: Select source")
         print("q: Back to main menu")
@@ -560,7 +768,7 @@ class NewsCLI:
             return
         elif choice.isdigit() and 1 <= int(choice) <= len(sources):
             selected_source = sources[int(choice) - 1]['name']
-            news_items = self.db.get_news_by_source(selected_source)
+            news_items = self.db.get_news_by_source(selected_source, active_only=active_only)
             
             if news_items:
                 self.clear_screen()
@@ -579,8 +787,24 @@ class NewsCLI:
         self.clear_screen()
         self.display_header("Browse by Category")
         
+        # Ask if user wants to filter by active sources only
+        print("Filter options:")
+        print("1. Show all categories")
+        print("2. Show only categories with active sources")
+        print("q: Back to main menu")
+        
+        filter_choice = input("\nEnter your choice (1-2, q): ").strip().lower()
+        
+        if filter_choice == 'q':
+            return
+        elif filter_choice == '2':
+            sources = self.db.get_sources(active_only=True)
+            active_only = True
+        else:
+            sources = self.db.get_sources()
+            active_only = False
+        
         # Get unique categories
-        sources = self.db.get_sources()
         categories = set(source['category'] for source in sources)
         
         if not categories:
@@ -588,7 +812,7 @@ class NewsCLI:
             input("Press Enter to continue...")
             return
         
-        print("Available categories:")
+        print(f"\nAvailable categories ({'active sources only' if active_only else 'all sources'}):")
         category_list = sorted(list(categories))
         for i, category in enumerate(category_list, 1):
             print(f"{i}. {category}")
@@ -602,7 +826,7 @@ class NewsCLI:
             return
         elif choice.isdigit() and 1 <= int(choice) <= len(category_list):
             selected_category = category_list[int(choice) - 1]
-            news_items = self.db.get_news_by_category(selected_category)
+            news_items = self.db.get_news_by_category(selected_category, active_only=active_only)
             
             if news_items:
                 self.clear_screen()
@@ -623,14 +847,15 @@ class NewsCLI:
         
         print("Main Menu:")
         print("1. Fetch Latest News")
-        print("2. Today's News Dashboard")
+        print("2. Browse Today's News Dashboard")
         print("3. Search News")
         print("4. Browse by Source")
         print("5. Browse by Category")
         print("6. Generate Markdown Digest (from existing news)")
-        print("7. Exit")
+        print("7. Manage Sources")
+        print("8. Exit")
         
-        choice = input("\nEnter your choice (1-7): ").strip()
+        choice = input("\nEnter your choice (1-8): ").strip()
         
         if choice == '1':
             self.fetch_and_store_news()
@@ -651,6 +876,9 @@ class NewsCLI:
             self.generate_digest_from_existing()
             self.show_main_menu()
         elif choice == '7':
+            self.show_source_management_menu()
+            self.show_main_menu()
+        elif choice == '8':
             print("Goodbye!")
             self.db.close()
             sys.exit(0)
@@ -658,6 +886,140 @@ class NewsCLI:
             print("Invalid choice. Please try again.")
             input("Press Enter to continue...")
             self.show_main_menu()
+    
+    def show_source_management_menu(self):
+        """Display the source management menu."""
+        self.clear_screen()
+        self.display_header("Source Management")
+        
+        print("Source Management Menu:")
+        print("1. Sync Sources with Config File")
+        print("2. Deactivate Obsolete Sources")
+        print("3. Cleanup Inactive Sources")
+        print("4. View Source Status")
+        print("5. Back to Main Menu")
+        
+        choice = input("\nEnter your choice (1-5): ").strip()
+        
+        if choice == '1':
+            self.sync_sources_with_config()
+        elif choice == '2':
+            self.deactivate_obsolete_sources()
+        elif choice == '3':
+            self.cleanup_inactive_sources()
+        elif choice == '4':
+            self.view_source_status()
+        elif choice == '5':
+            return
+        else:
+            print("Invalid choice. Please try again.")
+            input("Press Enter to continue...")
+            self.show_source_management_menu()
+    
+    def sync_sources_with_config(self):
+        """Sync database sources with current config file."""
+        self.clear_screen()
+        self.display_header("Sync Sources with Config")
+        
+        print("Syncing sources with feeds.yaml configuration...")
+        self.db.sync_sources_with_config()
+        
+        # Show results
+        all_sources = self.db.get_sources()
+        active_sources = [s for s in all_sources if s['is_active']]
+        inactive_sources = [s for s in all_sources if not s['is_active']]
+        
+        print(f"\nSync Results:")
+        print(f"  Total sources in database: {len(all_sources)}")
+        print(f"  Active sources: {len(active_sources)}")
+        print(f"  Inactive sources: {len(inactive_sources)}")
+        
+        if inactive_sources:
+            print(f"\nInactive sources: {', '.join([s['name'] for s in inactive_sources])}")
+        
+        input("\nPress Enter to continue...")
+    
+    def deactivate_obsolete_sources(self):
+        """Mark sources not in config as inactive."""
+        self.clear_screen()
+        self.display_header("Deactivate Obsolete Sources")
+        
+        print("Checking for sources not in current config...")
+        count = self.db.deactivate_obsolete_sources()
+        
+        if count > 0:
+            print(f"Deactivated {count} obsolete sources.")
+        else:
+            print("No obsolete sources found.")
+        
+        input("\nPress Enter to continue...")
+    
+    def cleanup_inactive_sources(self):
+        """Remove inactive sources from database."""
+        self.clear_screen()
+        self.display_header("Cleanup Inactive Sources")
+        
+        print("This will permanently remove all inactive sources from the database.")
+        print("Note: News items from these sources will remain in the database.\n")
+        
+        count = self.db.cleanup_inactive_sources()
+        
+        if count > 0:
+            print(f"Removed {count} inactive sources.")
+        
+        input("\nPress Enter to continue...")
+    
+    def view_source_status(self):
+        """View status of all sources."""
+        self.clear_screen()
+        self.display_header("Source Status")
+        
+        all_sources = self.db.get_sources()
+        
+        if not all_sources:
+            print("No sources found in database.")
+            input("\nPress Enter to continue...")
+            return
+        
+        print("All Sources:")
+        print("-" * 80)
+        
+        active_sources = [s for s in all_sources if s['is_active']]
+        inactive_sources = [s for s in all_sources if not s['is_active']]
+        
+        print("\n🟢 ACTIVE SOURCES:")
+        if active_sources:
+            for i, source in enumerate(active_sources, 1):
+                status = "Active"
+                last_fetched = source.get('last_fetched', 'Never')
+                if last_fetched and last_fetched != 'Never':
+                    try:
+                        date_obj = datetime.fromisoformat(last_fetched)
+                        last_fetched = date_obj.strftime('%Y-%m-%d %H:%M')
+                    except:
+                        pass
+                print(f"{i}. {source['name']} ({source['category']}) - {status} - Last fetched: {last_fetched}")
+        else:
+            print("  No active sources found.")
+        
+        print("\n🔴 INACTIVE SOURCES:")
+        if inactive_sources:
+            for i, source in enumerate(inactive_sources, 1):
+                status = "Inactive"
+                last_fetched = source.get('last_fetched', 'Never')
+                if last_fetched and last_fetched != 'Never':
+                    try:
+                        date_obj = datetime.fromisoformat(last_fetched)
+                        last_fetched = date_obj.strftime('%Y-%m-%d %H:%M')
+                    except:
+                        pass
+                print(f"{i}. {source['name']} ({source['category']}) - {status} - Last fetched: {last_fetched}")
+        else:
+            print("  No inactive sources found.")
+        
+        print(f"\nTotal: {len(all_sources)} sources ({len(active_sources)} active, {len(inactive_sources)} inactive)")
+        
+        input("\nPress Enter to continue...")
     
     def generate_digest_from_existing(self):
         """Generate a Markdown digest from existing news in database."""
@@ -695,7 +1057,8 @@ class NewsCLI:
             
             print("\nAvailable sources:")
             for i, source in enumerate(sources, 1):
-                print(f"{i}. {source['name']}")
+                status = "🟢" if source.get('is_active', True) else "🔴"
+                print(f"{i}. {source['name']} {status}")
             
             source_choice = input("\nSelect source (1-{}) or q to cancel: ".format(len(sources))).strip()
             
@@ -748,13 +1111,21 @@ class NewsCLI:
             input("Press Enter to continue...")
             return
         
+        # Ask if user wants to filter by active sources only
+        print("\nFilter options:")
+        print("1. Include all sources")
+        print("2. Include only active sources")
+        
+        filter_choice = input("Enter your choice (1-2): ").strip()
+        active_only = filter_choice == '2'
+        
         print(f"\nGenerating Markdown digest for {len(news_items)} news items...")
         
         # Ask for custom filename
         custom_filename = input("Enter custom filename (leave blank for auto-generated): ").strip()
         filename = custom_filename if custom_filename else None
         
-        md_file = self.db.generate_markdown_digest(news_items, filename)
+        md_file = self.db.generate_markdown_digest(news_items, filename, active_only=active_only)
         print(f"Markdown digest saved to: {md_file}")
         
         input("\nPress Enter to continue...")
