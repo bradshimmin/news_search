@@ -370,7 +370,9 @@ class NewsDatabase:
                     
                     f.write(f"**Source:** {item['source_name']}  \n")
                     f.write(f"**Published:** {date_str}  \n")
-                    f.write(f"**URL:** [{item['url']}]({item['url']})  \n\n")
+                    # Extract domain from URL for cleaner display
+                    domain = self.extract_domain(item['url'])
+                    f.write(f"**URL:** [{domain}]({item['url']})  \n\n")
                     
                     if item['description']:
                         # Clean up description for markdown
@@ -476,6 +478,38 @@ class NewsCLI:
         print("=" * 60)
         print(f"  {title.upper()}")
         print("=" * 60)
+
+    def extract_domain(self, url: str) -> str:
+        """Extract domain from URL for cleaner display."""
+        if '://' in url:
+            domain = url.split('://')[-1].split('/')[0]
+        else:
+            domain = url.split('/')[0]
+        # Remove www. prefix if present
+        if domain.startswith('www.'):
+            domain = domain[4:]
+        return domain
+
+    def hyperlink(self, text: str, url: str) -> str:
+        """Create a clickable hyperlink using ANSI escape codes (OSC 8)."""
+        # OSC 8 format: \033]8;;URL\033\\TEXT\033]8;;\033\\ 
+        return f"\033]8;;{url}\033\\{text}\033]8;;\033\\"
+
+    def supports_hyperlinks(self) -> bool:
+        """Check if terminal supports hyperlinks by testing environment."""
+        # Check for common terminal types that support OSC 8 hyperlinks
+        term = os.environ.get('TERM', '')
+        
+        # Terminals known to support hyperlinks
+        supported_terms = [
+            'xterm', 'xterm-256color', 'screen', 'screen-256color',
+            'tmux', 'tmux-256color', 'alacritty', 'kitty',
+            'vte', 'vte-256color', 'gnome', 'konsole',
+            'foot', 'wezterm', 'hyper'
+        ]
+        
+        # Check if terminal type contains any supported term
+        return any(supported_term in term for supported_term in supported_terms)
     
     def display_news_item(self, item: Dict[str, Any], index: int = None):
         """Display a single news item in a formatted way."""
@@ -497,7 +531,15 @@ class NewsCLI:
             wrapped_desc = textwrap.fill(item['description'], width=70)
             print(f"\n{wrapped_desc}")
         
-        print(f"\nURL: {item['url']}")
+        # Extract domain from URL for cleaner display
+        domain = self.extract_domain(item['url'])
+        if self.supports_hyperlinks():
+            # Use clickable hyperlink if terminal supports it
+            hyperlinked_domain = self.hyperlink(domain, item['url'])
+            print(f"\nURL: {hyperlinked_domain}")
+        else:
+            # Fallback for terminals without hyperlink support
+            print(f"\nURL: {domain} (press 'o' to open full URL)")
         print("-" * 60)
 
     def display_news_item_compact(self, item: Dict[str, Any], index: int = None):
@@ -523,8 +565,15 @@ class NewsCLI:
             else:
                 print(f"{item['title']} ({item['source_name']})")
         
-        # Second line: indented URL with link emoji
-        print(f"  🔗 {item['url']}")
+        # Second line: indented URL with link emoji - show domain only
+        domain = self.extract_domain(item['url'])
+        if self.supports_hyperlinks():
+            # Use clickable hyperlink if terminal supports it
+            hyperlinked_domain = self.hyperlink(domain, item['url'])
+            print(f"  🔗 {hyperlinked_domain}")
+        else:
+            # Fallback for terminals without hyperlink support
+            print(f"  🔗 {domain} (press 'o' to open)")
     
     def fetch_and_store_news(self):
         """Fetch news from all feeds and store in database."""
@@ -671,6 +720,9 @@ class NewsCLI:
         self.display_header("News Item Detail")
         
         self.display_news_item(item)
+        
+        # Show full URL in detail view
+        print(f"\nFull URL: {item['url']}")
         
         print("\nOptions:")
         print("o: Open URL in browser")
